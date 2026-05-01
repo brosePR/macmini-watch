@@ -1,8 +1,9 @@
 name: Mac Mini stock watch
 
 on:
-  schedule:
-    - cron: "*/10 * * * *"
+  # Cron disabled — Mac minis acquired May 2026. To re-arm, uncomment:
+  # schedule:
+  #   - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       test_ping:
