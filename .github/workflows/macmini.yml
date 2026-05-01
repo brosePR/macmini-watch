@@ -3,10 +3,18 @@ name: Mac Mini stock watch
 on:
   schedule:
     - cron: "*/10 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test_ping:
+        description: "Send a Slack test ping and exit (no real check)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 concurrency:
   group: macmini-watch
@@ -25,6 +33,7 @@ jobs:
       - name: Run check
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TEST_PING: ${{ inputs.test_ping == true && '1' || '0' }}
         run: python check.py
 
       - name: Commit state if changed

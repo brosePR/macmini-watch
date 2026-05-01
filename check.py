@@ -156,35 +156,43 @@ def check_bestbuy() -> list[dict]:
         f"distinct prices: {prices[:15]}{'...' if len(prices) > 15 else ''}",
         file=sys.stderr,
     )
+    # Proximity-based: find every "Mac mini" mention with "M4" nearby (within
+    # ~600 chars) and the closest price within ~2000 chars. Skip refurb/open-box
+    # blocks. Dedupe by (title-ish, price).
     hits = []
-    # Best Buy embeds product data in JSON-ish blocks. Loose approach:
-    # find product tiles, require "Mac mini" + "M4", new condition (no
-    # "Open-Box" / "Geek Squad Certified Refurbished"), and price under cap.
-    tile_pattern = re.compile(
-        r'<li class="sku-item"[\s\S]{0,12000}?</li>',
-        re.IGNORECASE,
-    )
-    for tile in tile_pattern.findall(html):
-        if "Mac mini" not in tile or "M4" not in tile:
+    seen = set()
+    for m in re.finditer(r"Mac mini", html, re.IGNORECASE):
+        start = max(0, m.start() - 300)
+        end = min(len(html), m.end() + 600)
+        block = html[start:end]
+        if not re.search(r"\bM4\b", block):
             continue
-        if re.search(r"(open[- ]box|geek squad|refurb)", tile, re.I):
+        # New only — skip open-box / refurb blocks
+        if re.search(r"(open[- ]box|geek squad|refurb)", block, re.I):
             continue
-        price_m = re.search(r'\$([0-9][0-9,]{2,4})\.\d{2}', tile)
+        # Find prices in a wider neighborhood (Best Buy often renders price
+        # in a sibling component a bit further away)
+        wide = html[max(0, m.start() - 500): min(len(html), m.end() + 2000)]
+        price_m = re.search(r"\$\s*([0-9][0-9,]{2,4})\.\d{2}", wide)
         if not price_m:
             continue
         price = int(price_m.group(1).replace(",", ""))
         if price > PRICE_CAP:
             continue
-        title_m = re.search(r'<h4[^>]*>\s*<a[^>]*>([^<]{10,200})</a>', tile)
-        title = (title_m.group(1) if title_m else "Mac mini M4").strip()
-        link_m = re.search(r'<a href="(/site/[^"]+)"', tile)
-        link = "https://www.bestbuy.com" + link_m.group(1) if link_m else url
+        # Best-effort title: a chunk of nearby text mentioning Mac mini + M4
+        title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", block)).strip()
+        title = re.search(r"([^.]{0,140}Mac mini[^.]{0,140}M4[^.]{0,80})", title, re.I)
+        title = title.group(1).strip() if title else "Mac mini M4"
+        key = (title[:80], price)
+        if key in seen:
+            continue
+        seen.add(key)
         hits.append(
             {
                 "retailer": "Best Buy",
                 "variant": title[:140],
                 "price": price,
-                "url": link,
+                "url": url,
             }
         )
     return hits
@@ -231,6 +239,18 @@ def save_state(state: dict) -> None:
 
 
 def main() -> int:
+    if os.environ.get("TEST_PING") == "1":
+        print("[test] sending Slack test ping")
+        post_slack(
+            {
+                "retailer": "TEST",
+                "variant": "macmini-watch end-to-end test",
+                "price": 0,
+                "url": "https://github.com/brosePR/macmini-watch",
+            }
+        )
+        return 0
+
     all_hits: list[dict] = []
     for fn in (check_apple_refurb, check_amazon, check_bestbuy):
         try:
