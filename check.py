@@ -33,7 +33,9 @@ def fetch(url: str) -> str:
     req = urllib.request.Request(url, headers=HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return resp.read().decode("utf-8", errors="ignore")
+            body = resp.read().decode("utf-8", errors="ignore")
+            print(f"[fetch] {url} -> {resp.status} ({len(body)} bytes)", file=sys.stderr)
+            return body
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
         print(f"[fetch] {url} -> {e}", file=sys.stderr)
         return ""
@@ -49,6 +51,16 @@ def check_apple_refurb() -> list[dict]:
     html = fetch(url)
     if not html:
         return []
+    # Diagnostics: confirm the page actually contains product data, not just
+    # the React shell.
+    mac_mini_count = len(re.findall(r"Mac mini", html, re.IGNORECASE))
+    m4_count = len(re.findall(r"\bM4\b", html))
+    prices = sorted({p for p in re.findall(r"\$\s*([0-9][0-9,]{2,4}\.\d{2})", html)})
+    print(
+        f"[apple] 'Mac mini' x{mac_mini_count}, 'M4' x{m4_count}, "
+        f"distinct prices: {prices[:15]}{'...' if len(prices) > 15 else ''}",
+        file=sys.stderr,
+    )
     hits = []
     # Apple refurb listings: each product block contains the product title
     # and a price near it. We anchor on "Mac mini" + "M4" and find the
